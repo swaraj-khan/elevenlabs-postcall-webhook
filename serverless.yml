@@ -9,13 +9,18 @@ provider:
   timeout: 30
   memorySize: 256
   environment:
-    SUPABASE_URL: ${env:SUPABASE_URL}
-    SUPABASE_KEY: ${env:SUPABASE_KEY}
-    BUCKET_NAME: ${env:BUCKET_NAME}
-    CALLEE_NUMBER: ${env:CALLEE_NUMBER}
+    SUPABASE_URL: ${ssm:/kovon/nurse/${self:provider.stage}/SUPABASE_URL}
+    SUPABASE_KEY: ${ssm:/kovon/nurse/${self:provider.stage}/SUPABASE_KEY}
+    BUCKET_NAME: ${ssm:/kovon/nurse/${self:provider.stage}/BUCKET_NAME}
+    CALLEE_NUMBER: ${ssm:/kovon/nurse/${self:provider.stage}/CALLEE_NUMBER}
 
 plugins:
   - serverless-offline
+
+custom:
+  pythonRequirements:
+    dockerizePip: true
+    slim: true
 
 functions:
   webhook:
@@ -27,6 +32,7 @@ functions:
 
 package:
   patterns:
+    - python/**
     - "!venv/**"
     - "!__pycache__/**"
     - "!.git/**"
