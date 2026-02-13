@@ -21,16 +21,13 @@ def upload_base64_audio(base64_str: str, call_id: str):
     try:
         if not base64_str:
             return None
-
         audio_bytes = base64.b64decode(base64_str)
         file_path = f"{call_id}.mp3"
-
         supabase.storage.from_(BUCKET_NAME).upload(
             file_path,
             audio_bytes,
             {"content-type": "audio/mpeg"},
         )
-
         return file_path
 
     except Exception as e:
@@ -47,14 +44,11 @@ async def elevenlabs_webhook(req: Request):
 
         data = payload.get("data", {})
         meta = data.get("metadata", {})
-        analysis = data.get("analysis", {})
-
         call_id = (
             data.get("conversation_id")
             or data.get("call_id")
             or str(uuid.uuid4())
         )
-
         status = data.get("status")
         transcript = data.get("transcript")
 
@@ -67,8 +61,6 @@ async def elevenlabs_webhook(req: Request):
                     phone_call.get("to_number")
                     or CALLEE_NUMBER
                 )
-
-
         recording_path = None
         if event_type == "post_call_audio":
             base64_audio = data.get("full_audio")
@@ -79,33 +71,24 @@ async def elevenlabs_webhook(req: Request):
             "metadata": data,
             "raw_payload": payload,
         }
-
         if caller:
             update_data["caller"] = caller
-
         if callee:
             update_data["callee"] = callee
-
         if status:
             update_data["status"] = status
-
         if duration:
             update_data["duration"] = duration
-
         if transcript:
             update_data["transcript"] = str(transcript)
-
         if cost:
             update_data["cost"] = cost
-
         if recording_path:
             update_data["recording_path"] = recording_path
-
         supabase.table("voice_calls").upsert(
             update_data,
             on_conflict="call_id",
         ).execute()
-
         return {"ok": True}
 
     except Exception as e:
