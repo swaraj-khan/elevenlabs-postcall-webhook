@@ -1,7 +1,7 @@
 import os
 import uuid
 import base64
-from fastapi import FastAPI, Request
+import json
 from dotenv import load_dotenv
 from supabase import create_client
 
@@ -13,8 +13,6 @@ BUCKET_NAME = os.getenv("BUCKET_NAME", "call-recordings")
 CALLEE_NUMBER = os.getenv("CALLEE_NUMBER")
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-app = FastAPI()
 
 
 def upload_base64_audio(base64_str: str, call_id: str):
@@ -35,10 +33,17 @@ def upload_base64_audio(base64_str: str, call_id: str):
         return None
 
 
-@app.post("/webhook/elevenlabs")
-async def elevenlabs_webhook(req: Request):
+def lambda_handler(event, context):
     try:
-        payload = await req.json()
+        body = event.get("body", "{}")
+        if event.get("isBase64Encoded", False):
+            body = base64.b64decode(body).decode("utf-8")
+
+        if isinstance(body, str):
+            payload = json.loads(body)
+        else:
+            payload = body
+
         event_type = payload.get("type")
         print("EVENT:", event_type)
 
@@ -89,8 +94,14 @@ async def elevenlabs_webhook(req: Request):
             update_data,
             on_conflict="call_id",
         ).execute()
-        return {"ok": True}
+        return {
+            "statusCode": 200,
+            "body": json.dumps({"ok": True})
+        }
 
     except Exception as e:
         print("WEBHOOK ERROR:", e)
-        return {"ok": False, "error": str(e)}
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"ok": False, "error": str(e)})
+        }

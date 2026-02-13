@@ -1,0 +1,33 @@
+org: testingswa
+service: elevenlabs-postcall-webhook
+
+provider:
+  name: aws
+  runtime: python3.12
+  region: ap-south-1
+  stage: ${opt:stage, "dev"}
+  timeout: 30
+  memorySize: 256
+  environment:
+    SUPABASE_URL: ${env:SUPABASE_URL}
+    SUPABASE_KEY: ${env:SUPABASE_KEY}
+    BUCKET_NAME: ${env:BUCKET_NAME}
+    CALLEE_NUMBER: ${env:CALLEE_NUMBER}
+
+plugins:
+  - serverless-offline
+
+functions:
+  webhook:
+    handler: app.lambda_handler
+    events:
+      - httpApi:
+          path: /webhook
+          method: post
+
+package:
+  patterns:
+    - "!venv/**"
+    - "!__pycache__/**"
+    - "!.git/**"
+    - "!.env*"
