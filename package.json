@@ -1,0 +1,24 @@
+{
+  "name": "elevenlabs-postcall-webhook",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/swaraj-khan/elevenlabs-postcall-webhook.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/swaraj-khan/elevenlabs-postcall-webhook/issues"
+  },
+  "homepage": "https://github.com/swaraj-khan/elevenlabs-postcall-webhook#readme",
+  "devDependencies": {
+    "serverless-offline": "^14.4.0"
+  }
+}
