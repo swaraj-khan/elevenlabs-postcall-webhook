@@ -1,0 +1,113 @@
+import os
+import uuid
+import base64
+from fastapi import FastAPI, Request
+from dotenv import load_dotenv
+from supabase import create_client
+
+load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+BUCKET_NAME = os.getenv("BUCKET_NAME", "call-recordings")
+CALLEE_NUMBER = os.getenv("CALLEE_NUMBER")
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+app = FastAPI()
+
+
+def upload_base64_audio(base64_str: str, call_id: str):
+    try:
+        if not base64_str:
+            return None
+
+        audio_bytes = base64.b64decode(base64_str)
+        file_path = f"{call_id}.mp3"
+
+        supabase.storage.from_(BUCKET_NAME).upload(
+            file_path,
+            audio_bytes,
+            {"content-type": "audio/mpeg"},
+        )
+
+        return file_path
+
+    except Exception as e:
+        print("Audio upload failed:", e)
+        return None
+
+
+@app.post("/webhook/elevenlabs")
+async def elevenlabs_webhook(req: Request):
+    try:
+        payload = await req.json()
+        event_type = payload.get("type")
+        print("EVENT:", event_type)
+
+        data = payload.get("data", {})
+        meta = data.get("metadata", {})
+        analysis = data.get("analysis", {})
+
+        call_id = (
+            data.get("conversation_id")
+            or data.get("call_id")
+            or str(uuid.uuid4())
+        )
+
+        status = data.get("status")
+        transcript = data.get("transcript")
+
+        duration = meta.get("call_duration_secs") or meta.get("duration")
+        cost = meta.get("cost") or meta.get("call_charge")
+
+        phone_call = meta.get("phone_call") or {}
+        caller = phone_call.get("from_number") or data.get("user_id")
+        callee = (
+                    phone_call.get("to_number")
+                    or CALLEE_NUMBER
+                )
+
+
+        recording_path = None
+        if event_type == "post_call_audio":
+            base64_audio = data.get("full_audio")
+            recording_path = upload_base64_audio(base64_audio, call_id)
+
+        update_data = {
+            "call_id": call_id,
+            "metadata": data,
+            "raw_payload": payload,
+        }
+
+        if caller:
+            update_data["caller"] = caller
+
+        if callee:
+            update_data["callee"] = callee
+
+        if status:
+            update_data["status"] = status
+
+        if duration:
+            update_data["duration"] = duration
+
+        if transcript:
+            update_data["transcript"] = str(transcript)
+
+        if cost:
+            update_data["cost"] = cost
+
+        if recording_path:
+            update_data["recording_path"] = recording_path
+
+        supabase.table("voice_calls").upsert(
+            update_data,
+            on_conflict="call_id",
+        ).execute()
+
+        return {"ok": True}
+
+    except Exception as e:
+        print("WEBHOOK ERROR:", e)
+        return {"ok": False, "error": str(e)}
