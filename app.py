@@ -1,11 +1,18 @@
+import sys
+sys.path.append('/var/task/python')
+
 import os
 import uuid
 import base64
 import json
-from dotenv import load_dotenv
+import os
+
+if os.getenv("IS_OFFLINE"):
+    from dotenv import load_dotenv
+    load_dotenv()
+
 from supabase import create_client
 
-load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -35,25 +42,37 @@ def upload_base64_audio(base64_str: str, call_id: str):
 
 def lambda_handler(event, context):
     try:
-        body = event.get("body", "{}")
-        if event.get("isBase64Encoded", False):
-            body = base64.b64decode(body).decode("utf-8")
+        print("RAW EVENT:", json.dumps(event))
 
-        if isinstance(body, str):
-            payload = json.loads(body)
+        payload = None
+        body = event.get("body") if isinstance(event, dict) else None
+
+        if body:
+            if event.get("isBase64Encoded"):
+                body = base64.b64decode(body).decode("utf-8")
+
+            if isinstance(body, str):
+                payload = json.loads(body)
+            else:
+                payload = body
         else:
-            payload = body
+            payload = event if isinstance(event, dict) else {}
+
+        if not isinstance(payload, dict):
+            payload = {}
 
         event_type = payload.get("type")
-        print("EVENT:", event_type)
+        print("EVENT TYPE:", event_type)
 
-        data = payload.get("data", {})
-        meta = data.get("metadata", {})
+        data = payload.get("data", {}) or {}
+        meta = data.get("metadata", {}) or {}
+
         call_id = (
             data.get("conversation_id")
             or data.get("call_id")
             or str(uuid.uuid4())
         )
+
         status = data.get("status")
         transcript = data.get("transcript")
 
@@ -62,20 +81,20 @@ def lambda_handler(event, context):
 
         phone_call = meta.get("phone_call") or {}
         caller = phone_call.get("from_number") or data.get("user_id")
-        callee = (
-                    phone_call.get("to_number")
-                    or CALLEE_NUMBER
-                )
+        callee = phone_call.get("to_number") or CALLEE_NUMBER
+
         recording_path = None
         if event_type == "post_call_audio":
             base64_audio = data.get("full_audio")
-            recording_path = upload_base64_audio(base64_audio, call_id)
+            if base64_audio:
+                recording_path = upload_base64_audio(base64_audio, call_id)
 
         update_data = {
             "call_id": call_id,
             "metadata": data,
             "raw_payload": payload,
         }
+
         if caller:
             update_data["caller"] = caller
         if callee:
@@ -90,17 +109,19 @@ def lambda_handler(event, context):
             update_data["cost"] = cost
         if recording_path:
             update_data["recording_path"] = recording_path
+
         supabase.table("voice_calls").upsert(
             update_data,
             on_conflict="call_id",
         ).execute()
+
         return {
             "statusCode": 200,
             "body": json.dumps({"ok": True})
         }
 
     except Exception as e:
-        print("WEBHOOK ERROR:", e)
+        print("WEBHOOK ERROR:", str(e))
         return {
             "statusCode": 500,
             "body": json.dumps({"ok": False, "error": str(e)})
