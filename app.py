@@ -5,13 +5,14 @@ import os
 import uuid
 import base64
 import json
-import os
+import ast
 
 if os.getenv("IS_OFFLINE"):
     from dotenv import load_dotenv
     load_dotenv()
 
 from supabase import create_client
+from google import genai
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -19,20 +20,28 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 BUCKET_NAME = os.getenv("BUCKET_NAME", "call-recordings")
 CALLEE_NUMBER = os.getenv("CALLEE_NUMBER")
 
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL")
+
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+genai_client = genai.Client(api_key=GOOGLE_API_KEY)
 
 
 def upload_base64_audio(base64_str: str, call_id: str):
     try:
         if not base64_str:
             return None
+
         audio_bytes = base64.b64decode(base64_str)
         file_path = f"{call_id}.mp3"
+
         supabase.storage.from_(BUCKET_NAME).upload(
             file_path,
             audio_bytes,
             {"content-type": "audio/mpeg"},
         )
+
         return file_path
 
     except Exception as e:
@@ -40,14 +49,77 @@ def upload_base64_audio(base64_str: str, call_id: str):
         return None
 
 
-def lambda_handler(event, context):
+def clean_transcript(transcript):
     try:
+        if isinstance(transcript, str):
+            transcript = ast.literal_eval(transcript)
+
+        cleaned = []
+
+        for item in transcript:
+            message = item.get("message")
+            role = item.get("role")
+
+            if message:
+                cleaned.append({
+                    "role": role,
+                    "message": message
+                })
+
+        return cleaned
+
+    except Exception as e:
+        print("Transcript cleaning failed:", e)
+        return []
+
+def load_system_prompt():
+    try:
+        with open("prompts/intention-finder.md", "r") as f:
+            return f.read()
+    except Exception as e:
+        print("Prompt loading failed:", e)
+        return ""
+    
+
+def summarize_conversation(transcript):
+
+    try:
+        system_prompt = load_system_prompt()
+
+        conversation_text = "\n".join(
+            f"{msg['role']}: {msg['message']}"
+            for msg in transcript
+        )
+
+        prompt = f"""
+{system_prompt}
+
+Conversation:
+{conversation_text}
+"""
+
+        response = genai_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt
+        )
+
+        return response.text.strip()
+
+    except Exception as e:
+        print("Summary generation failed:", e)
+        return None
+
+def lambda_handler(event, context):
+
+    try:
+
         print("RAW EVENT:", json.dumps(event))
 
         payload = None
         body = event.get("body") if isinstance(event, dict) else None
 
         if body:
+
             if event.get("isBase64Encoded"):
                 body = base64.b64decode(body).decode("utf-8")
 
@@ -55,6 +127,7 @@ def lambda_handler(event, context):
                 payload = json.loads(body)
             else:
                 payload = body
+
         else:
             payload = event if isinstance(event, dict) else {}
 
@@ -80,14 +153,24 @@ def lambda_handler(event, context):
         cost = meta.get("cost") or meta.get("call_charge")
 
         phone_call = meta.get("phone_call") or {}
+
         caller = phone_call.get("from_number") or data.get("user_id")
         callee = phone_call.get("to_number") or CALLEE_NUMBER
 
         recording_path = None
+
         if event_type == "post_call_audio":
             base64_audio = data.get("full_audio")
             if base64_audio:
                 recording_path = upload_base64_audio(base64_audio, call_id)
+
+        summary = None
+
+        if transcript:
+            cleaned_transcript = clean_transcript(transcript)
+
+            if cleaned_transcript:
+                summary = summarize_conversation(cleaned_transcript)
 
         update_data = {
             "call_id": call_id,
@@ -97,18 +180,27 @@ def lambda_handler(event, context):
 
         if caller:
             update_data["caller"] = caller
+
         if callee:
             update_data["callee"] = callee
+
         if status:
             update_data["status"] = status
+
         if duration:
             update_data["duration"] = duration
+
         if transcript:
             update_data["transcript"] = str(transcript)
+
         if cost:
             update_data["cost"] = cost
+
         if recording_path:
             update_data["recording_path"] = recording_path
+
+        if summary:
+            update_data["summary"] = summary
 
         supabase.table("voice_calls").upsert(
             update_data,
@@ -121,8 +213,13 @@ def lambda_handler(event, context):
         }
 
     except Exception as e:
+
         print("WEBHOOK ERROR:", str(e))
+
         return {
             "statusCode": 500,
-            "body": json.dumps({"ok": False, "error": str(e)})
+            "body": json.dumps({
+                "ok": False,
+                "error": str(e)
+            })
         }

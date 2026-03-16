@@ -13,6 +13,9 @@ provider:
     SUPABASE_KEY: ${ssm:/kovon/nurse/${self:provider.stage}/SUPABASE_KEY}
     BUCKET_NAME: ${ssm:/kovon/nurse/${self:provider.stage}/BUCKET_NAME}
     CALLEE_NUMBER: ${ssm:/kovon/nurse/${self:provider.stage}/CALLEE_NUMBER}
+    GOOGLE_API_KEY: ${ssm:/kovon/${self:provider.stage}/nurse/GOOGLE_API_KEY}
+    GEMINI_MODEL: "gemini-2.5-flash"
+    SUPABASE_TABLE: "voice_calls"
 
 plugins:
   - serverless-offline
