@@ -40,3 +40,4 @@ package:
     - "!__pycache__/**"
     - "!.git/**"
     - "!.env*"
+    - prompts/**
